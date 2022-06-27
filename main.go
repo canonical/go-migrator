@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"strconv"
+	"path/filepath"
 	"time"
 
 	"github.com/rancher/kine/pkg/client"
@@ -70,9 +70,9 @@ func main() {
 	}
 }
 
-func get_kd_files(index int) (string, string) {
-	var keyfile = db + "/" + strconv.Itoa(index) + ".key"
-	var datafile = db + "/" + strconv.Itoa(index) + ".data"
+func getFileNamesForKey(index int) (string, string) {
+	var keyfile = filepath.Join(db, fmt.Sprintf("%d.key", index))
+	var datafile = filepath.Join(db, fmt.Sprintf("%d.data", index))
 	return keyfile, datafile
 }
 
@@ -82,40 +82,40 @@ func backup_etcd(ep string, dir string) error {
 		Endpoints: []string{ep},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create etcd client: %w", err)
 	}
 	defer cli.Close()
 
 	resp, err := cli.Get(ctx, "", clientv3.WithPrefix(), clientv3.WithSort(clientv3.SortByKey, clientv3.SortDescend))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get keys from etcd: %w", err)
 	}
 
 	err = os.Mkdir(db, 0700)
 	if err != nil {
-		return err
+		return fmt.Errorf("couldn't create backup directory: %w", err)
 	}
 
 	for i, ev := range resp.Kvs {
 		logrus.Debugf("%d) %s\n", i, ev.Key)
-		keyfile, datafile := get_kd_files(i)
+		keyfile, datafile := getFileNamesForKey(i)
 		keyf, err := os.Create(keyfile)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't create keyfile %s: %w", keyfile, err)
 		}
 		defer keyf.Close()
 
 		dataf, err := os.Create(datafile)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't create a datafile %s: %w", datafile, err)
 		}
 		defer dataf.Close()
 
 		if _, err := keyf.Write(ev.Key); err != nil {
-			return err
+			return fmt.Errorf("couldn't write to keyfile %s: %w", keyfile, err)
 		}
 		if _, err := dataf.Write(ev.Value); err != nil {
-			return err
+			return fmt.Errorf("couldn't write to datafile %s: %w", datafile, err)
 		}
 	}
 	return nil
@@ -134,9 +134,9 @@ func put_key(c client.Client, ctx context.Context, key string, databytes []byte)
 				}
 				return nil
 			}
-			return err
+			return fmt.Errorf("couldn't put key %s: %w", key, err)
 		} else {
-			return err
+			return fmt.Errorf("couldn't create key %s: %w", key, err)
 		}
 	}
 	return nil
@@ -150,13 +150,13 @@ func restore_to_dqlite(ep string, dir string) error {
 	}
 	c, err := client.New(etcdcfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create etcd client: %w", err)
 	}
 	defer c.Close()
 
 	var i = 0
 	for {
-		keyfile, datafile := get_kd_files(i)
+		keyfile, datafile := getFileNamesForKey(i)
 		_, err := os.Stat(keyfile)
 		if os.IsNotExist(err) {
 			fmt.Printf("Processed %d entries", i)
@@ -165,17 +165,17 @@ func restore_to_dqlite(ep string, dir string) error {
 
 		keybytes, err := ioutil.ReadFile(keyfile)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't read keyfile %s: %w", keyfile, err)
 		}
 		key := string(keybytes)
 		databytes, err := ioutil.ReadFile(datafile)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't read datafile %s: %w", datafile, err)
 		}
 
 		logrus.Debugf("%d) %s", i, key)
 		if err := put_key(c, ctx, key, databytes); err != nil {
-			return err
+			logrus.Errorf("couldn't put key %s: %q", key, err)
 		}
 		i++
 	}
@@ -190,46 +190,45 @@ func backup_dqlite(ep string, dir string) error {
 	}
 	c, err := client.New(etcdcfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("couldn't create kine client: %w", err)
 	}
 	defer c.Close()
 
 	resp, err := c.List(ctx, "/", 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("couldn't list key's values: %w", err)
 	}
 	err = os.Mkdir(db, 0700)
 	if err != nil {
-		return err
+		return fmt.Errorf("couldn't create backup directory: %w", err)
 	}
 	for i, kv := range resp {
 		logrus.Debugf("%d) %s\n", i, kv.Key)
 		data, err := c.Get(ctx, string(kv.Key))
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't get key %s: %w", kv.Key, err)
 		}
 
-		keyfile, datafile := get_kd_files(i)
+		keyfile, datafile := getFileNamesForKey(i)
 		keyf, err := os.Create(keyfile)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't create keyfile %s: %w", keyfile, err)
 		}
 		defer keyf.Close()
 
 		dataf, err := os.Create(datafile)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't create datafile %s: %w", datafile, err)
 		}
 		defer dataf.Close()
 
 		if _, err := keyf.Write(kv.Key); err != nil {
-			return err
+			return fmt.Errorf("couldn't write to keyfile %s: %w", keyfile, err)
 		}
 		if _, err := dataf.Write(data.Data); err != nil {
-			return err
+			return fmt.Errorf("couldn't write to datafile %s: %w", datafile, err)
 		}
 	}
-
 	return nil
 }
 
@@ -239,13 +238,13 @@ func restore_to_etcd(ep string, dir string) error {
 		Endpoints: []string{ep},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create etcd client: %w", err)
 	}
 	defer cli.Close()
 
 	var i = 0
 	for {
-		keyfile, datafile := get_kd_files(i)
+		keyfile, datafile := getFileNamesForKey(i)
 		_, err := os.Stat(keyfile)
 		if os.IsNotExist(err) {
 			fmt.Printf("Processed %d entries", i)
@@ -254,15 +253,15 @@ func restore_to_etcd(ep string, dir string) error {
 
 		keybytes, err := ioutil.ReadFile(keyfile)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't read keyfile %s: %w", keyfile, err)
 		}
 		databytes, err := ioutil.ReadFile(datafile)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't read datafile %s: %w", datafile, err)
 		}
 
 		if _, err := cli.Put(ctx, string(keybytes), string(databytes)); err != nil {
-			return err
+			return fmt.Errorf("couldn't put key %s: %w", keybytes, err)
 		}
 		i++
 	}
@@ -277,7 +276,7 @@ func direct(etcd_direct string, dqlite_direct string) error {
 	}
 	dqlite, err := client.New(dqlite_cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create kine client: %w", err)
 	}
 	defer dqlite.Close()
 
@@ -286,12 +285,12 @@ func direct(etcd_direct string, dqlite_direct string) error {
 		Endpoints: []string{etcd_direct},
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create etcd client: %w", err)
 	}
 	defer etcd.Close()
 	resp, err := etcd.Get(ctx_etcd, "", clientv3.WithPrefix(), clientv3.WithSort(clientv3.SortByKey, clientv3.SortDescend))
 	if err != nil {
-		return err
+		return fmt.Errorf("couldn't get keys from etcd: %w", err)
 	}
 
 	for i, ev := range resp.Kvs {
@@ -300,10 +299,10 @@ func direct(etcd_direct string, dqlite_direct string) error {
 		if err != nil {
 			if err.Error() == "key exists" {
 				if err := dqlite.Put(ctx_dqlite, string(ev.Key), ev.Value); err != nil {
-					return err
+					return fmt.Errorf("couldn't put key to dqlite %s: %w", ev.Key, err)
 				}
 			} else {
-				return err
+				return fmt.Errorf("couldn't create dqlite key %s: %w", ev.Key, err)
 			}
 		}
 		i++
