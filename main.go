@@ -223,10 +223,10 @@ func backup_dqlite(ep string, dir string) error {
 		defer dataf.Close()
 
 		if _, err := keyf.Write(kv.Key); err != nil {
-			return fmt.Errorf("couldn't write to keyfile %s: %w", keyfile, err)
+			logrus.Errorf("couldn't write to keyfile %s: %w", keyfile, err)
 		}
 		if _, err := dataf.Write(data.Data); err != nil {
-			return fmt.Errorf("couldn't write to datafile %s: %w", datafile, err)
+			logrus.Errorf("couldn't write to datafile %s: %w", datafile, err)
 		}
 	}
 	return nil
