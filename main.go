@@ -99,23 +99,11 @@ func backup_etcd(ep string, dir string) error {
 	for i, ev := range resp.Kvs {
 		logrus.Debugf("%d) %s\n", i, ev.Key)
 		keyfile, datafile := getFileNamesForKey(i)
-		keyf, err := os.Create(keyfile)
-		if err != nil {
-			return fmt.Errorf("couldn't create keyfile %s: %w", keyfile, err)
+		if err := os.WriteFile(keyfile, ev.Key, 0640); err != nil {
+			return fmt.Errorf("failed to write key file %q: %w", keyfile, err)
 		}
-		defer keyf.Close()
-
-		dataf, err := os.Create(datafile)
-		if err != nil {
-			return fmt.Errorf("couldn't create a datafile %s: %w", datafile, err)
-		}
-		defer dataf.Close()
-
-		if _, err := keyf.Write(ev.Key); err != nil {
-			return fmt.Errorf("couldn't write to keyfile %s: %w", keyfile, err)
-		}
-		if _, err := dataf.Write(ev.Value); err != nil {
-			return fmt.Errorf("couldn't write to datafile %s: %w", datafile, err)
+		if err := os.WriteFile(datafile, ev.Value, 0640); err != nil {
+			return fmt.Errorf("failed to write data file %q: %w", datafile, err)
 		}
 	}
 	return nil
@@ -210,23 +198,11 @@ func backup_dqlite(ep string, dir string) error {
 		}
 
 		keyfile, datafile := getFileNamesForKey(i)
-		keyf, err := os.Create(keyfile)
-		if err != nil {
-			return fmt.Errorf("couldn't create keyfile %s: %w", keyfile, err)
+		if err := os.WriteFile(keyfile, kv.Key, 0640); err != nil {
+			return fmt.Errorf("failed to write key file %q: %w", keyfile, err)
 		}
-		defer keyf.Close()
-
-		dataf, err := os.Create(datafile)
-		if err != nil {
-			return fmt.Errorf("couldn't create datafile %s: %w", datafile, err)
-		}
-		defer dataf.Close()
-
-		if _, err := keyf.Write(kv.Key); err != nil {
-			logrus.Errorf("couldn't write to keyfile %s: %w", keyfile, err)
-		}
-		if _, err := dataf.Write(data.Data); err != nil {
-			logrus.Errorf("couldn't write to datafile %s: %w", datafile, err)
+		if err := os.WriteFile(datafile, data.Data, 0640); err != nil {
+			return fmt.Errorf("failed to write data file %q: %w", datafile, err)
 		}
 	}
 	return nil
