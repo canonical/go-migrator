@@ -192,16 +192,12 @@ func backup_dqlite(ep string, dir string) error {
 	}
 	for i, kv := range resp {
 		logrus.Debugf("%d) %s\n", i, kv.Key)
-		data, err := c.Get(ctx, string(kv.Key))
-		if err != nil {
-			return fmt.Errorf("couldn't get key %s: %w", kv.Key, err)
-		}
 
 		keyfile, datafile := getFileNamesForKey(i)
 		if err := os.WriteFile(keyfile, kv.Key, 0640); err != nil {
 			return fmt.Errorf("failed to write key file %q: %w", keyfile, err)
 		}
-		if err := os.WriteFile(datafile, data.Data, 0640); err != nil {
+		if err := os.WriteFile(datafile, kv.Data, 0640); err != nil {
 			return fmt.Errorf("failed to write data file %q: %w", datafile, err)
 		}
 	}
